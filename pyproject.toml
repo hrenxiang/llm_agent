@@ -6,7 +6,7 @@ authors = [
     {name = "huangrx",email = "huang.rx.life@hotmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "annotated-types (==0.7.0)",
     "anyio (==4.8.0)",
@@ -21,10 +21,18 @@ dependencies = [
     "starlette (==0.46.0)",
     "typing-extensions (==4.12.2)",
     "uvicorn[standard] (>=0.34.0,<0.35.0)",
-    "wheel (==0.45.1)"
+    "wheel (==0.45.1)",
+    "langchain-community (>=0.3.19,<0.4.0)",
+    "langchain-unstructured (>=0.1.6,<0.2.0)",
+    "rapidocr-onnxruntime (>=1.4.4,<2.0.0)",
+    "chardet (>=5.2.0,<6.0.0)",
+    "unstructured (>=0.16.23,<0.17.0)"
 ]
 
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+package-mode = false
