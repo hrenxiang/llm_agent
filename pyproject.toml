@@ -3,7 +3,7 @@ name = "llm-agent"
 version = "0.1.0"
 description = "智能体"
 authors = [
-    {name = "huangrx",email = "huang.rx.life@hotmail.com"}
+    { name = "huangrx", email = "huang.rx.life@hotmail.com" }
 ]
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -27,7 +27,13 @@ dependencies = [
     "rapidocr-onnxruntime (>=1.4.4,<2.0.0)",
     "chardet (>=5.2.0,<6.0.0)",
     "unstructured (>=0.16.23,<0.17.0)",
-    "langchain-deepseek (>=0.1.2,<0.2.0)"
+    "langchain-deepseek (>=0.1.2,<0.2.0)",
+    "sentence-transformers (>=3.4.1,<4.0.0)",
+    "filelock (>=3.17.0,<4.0.0)",
+    "chromadb (>=0.6.3,<0.7.0)",
+    "torch @ https://download.pytorch.org/whl/cu121/torch-2.5.1+cu121-cp312-cp312-win_amd64.whl",
+    "torchvision @ https://download.pytorch.org/whl/cu121/torchvision-0.20.1+cu121-cp312-cp312-win_amd64.whl",
+    "torchaudio @ https://download.pytorch.org/whl/cu121/torchaudio-2.5.1+cu121-cp312-cp312-win_amd64.whl"
 ]
 
 
