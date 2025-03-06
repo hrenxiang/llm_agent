@@ -26,7 +26,8 @@ dependencies = [
     "langchain-unstructured (>=0.1.6,<0.2.0)",
     "rapidocr-onnxruntime (>=1.4.4,<2.0.0)",
     "chardet (>=5.2.0,<6.0.0)",
-    "unstructured (>=0.16.23,<0.17.0)"
+    "unstructured (>=0.16.23,<0.17.0)",
+    "langchain-deepseek (>=0.1.2,<0.2.0)"
 ]
 
 

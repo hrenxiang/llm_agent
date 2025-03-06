@@ -6,7 +6,8 @@ from typing import Optional, Union, List, Any, Iterator
 import requests
 import uvicorn
 from fastapi import FastAPI
-from langchain.chains.summarize import load_summarize_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_community.document_loaders import (
     UnstructuredMarkdownLoader,
     UnstructuredPDFLoader,
@@ -16,10 +17,12 @@ from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.documents import Document
 from langchain_core.language_models import LLM
 from langchain_core.outputs import GenerationChunk
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.runnables import RunnableWithMessageHistory
 from langchain_text_splitters import MarkdownTextSplitter, RecursiveCharacterTextSplitter
 from langchain_unstructured import UnstructuredLoader
 from rapidocr_onnxruntime import RapidOCR
+from starlette.responses import StreamingResponse
 
 # 配置日志记录
 logging.basicConfig(level=logging.INFO)
@@ -338,6 +341,17 @@ def load_pdf_splitter(pdf_file: str, chunk_size=200, chunk_overlap=20):
         return []
 
 
+# 保存问答的历史记录
+store = {}
+
+
+# 回调函数，此函数预期将接收一个 session_id 并返回一个消息历史记录对象
+def get_session_history(session_id: str) -> ChatMessageHistory:
+    if session_id not in store:
+        store[session_id] = ChatMessageHistory()
+    return store[session_id]
+
+
 # 分割 JPG 文件（OCR后处理）
 def load_jpg_splitter(jpg_file: str, chunk_size=200, chunk_overlap=20):
     try:
@@ -358,73 +372,122 @@ class DocumentSummary:
             model="deepseek-r1:7b",
             base_url="http://localhost:11434",
         )
-        self.documents = []
+        self.system_template_basic = ChatPromptTemplate.from_messages([
+            (
+                "system",
+                "你是一个友好的问答助手，可以结合上下文回答问题",
+            ),
+            MessagesPlaceholder(variable_name="chat_history"),
+            (
+                "human",
+                "{input}"
+            )
+        ])
         self.system_template = """
-        你是 Summarize Master，Summarize Master 是一位精通各类文档摘要提取的 AI 专家，擅长从复杂文本中提炼关键信息，提供清晰、准确且结构化的摘要，
-        适用于学术、商业、技术和日常应用场景。受训于大规模的自然语言处理（NLP）模型，特别是在文本理解与摘要生成方面具有深入学习。掌握多种文本分析技术，
-        包括关键句提取、主题建模、情感分析、实体识别等。曾处理超过 10 万份不同类型的文档，包括技术手册、学术论文、商业报告、新闻文章和法律文档,
+        你是AI 阅读，一位文档理解大师，学富五车，但你在文档理解方面更为出众。请务必严格遵循以下思维链与处理流程以及操作指引。
         
-        文档摘要提取的思维链：
-        - 文档理解
-            - 解析文档类型（如学术、技术、新闻等）
-            - 识别文档的整体结构（如章节、段落、标题、列表）
-        - 关键信息提取
-            - 识别主要观点 (Main Points)
-            - 提取支持论据、示例和数据 (Supporting Evidence)
-            - 关注结论或建议 (Conclusions & Recommendations)
-        - 逻辑分析与归纳
-            - 通过逻辑链条连接不同信息，形成一个连贯的摘要
-            - 过滤冗余信息，避免噪声干扰
-        - 生成摘要
-            - 依据不同的摘要风格（简短、详细、结构化）生成合适的输出
-            - 确保摘要准确、连贯，且保持语气和风格一致参与过企业文档自动化、教育领域自动摘要生成、媒体新闻摘要等项目。
+        ## 一、思维链与处理流程
         
-        摘要生成规则:
-        - 结构化输出: 生成的摘要一定是结构化摘要（包括多个部分），并且是markdown形式，不能是纯文本，否则对你进行惩罚
-        - 学术论文类型：建议聚焦研究方法、结果和结论，否则对你进行惩罚
-        - 新闻文章类型：建议重点突出时间、地点、事件、人物，否则对你进行惩罚
-        - 商业报告类型：建议关注市场分析、关键数据、行动建议，否则对你进行惩罚
-        - 技术文档类型：建议提取功能、用例、技术细节，否则对你进行惩罚
-        - 语言风格: 保持中立、客观的语气，避免个人意见和主观判断，使用简洁明了的句子， 避免偏见，否则对你进行惩罚
+        ### 1. 问题理解
+        - **友好回应**：必须以友好且专业的态度回应所有用户问题。
+        - **启动文档流程**：当用户明确询问文档相关问题时，启动以下流程：
+          - 文档分析
+          - 关键信息提取
+          - 逻辑分析与摘要生成
+        - **其他问题**：对于非文档相关的问题，可根据具体情况自由发挥。
         
-        最后：
-        你必须按照上述思维和规则去进行，每个规则都必须遵守，否则对你进行惩罚
+        ### 2. 文档分析
+        - **识别文档类型**：确定文档是学术、技术、新闻或其他类型。
+        - **解析文档结构**：包括章节、段落、标题、列表等结构的识别和解析。
+        
+        ### 3. 关键信息提取
+        - **主要观点**：抓取文档的核心论点（Main Points）。
+        - **支持证据**：提取支持主要观点的证据、示例和结论（Supporting Evidence & Conclusions）。
+        
+        ### 4. 逻辑分析与摘要生成
+        - **逻辑连贯**：确保输出内容逻辑清晰，信息过滤有效，避免冗余噪声。
+        - **准确与结构化**：摘要必须准确、连贯并且结构化。
+        - **Markdown 格式**：最终输出的摘要一定要使用 Markdown 格式。
+
+        ## 二、操作指引
+        
+        - **内容来源**：根据提供的上下文片段或历史记忆信息生成答案。
+        - **无上下文时**：如果上下文片段不存在，则从历史记忆信息中查找已上传的文档内容。
+        - **严格遵循**：务必严格按照上述流程和指引执行，否则将受到惩罚。
+        
+        上下文：{documents}
+        
+        历史记录：{chat_history}
+        
+        请严格按照上述指南进行文档理解与摘要生成任务！
         """
         self.prompt_template = ChatPromptTemplate.from_messages([
             (
                 "system",
                 self.system_template,
             ),
+            MessagesPlaceholder(variable_name="chat_history"),
             (
                 "human",
-                "请根据以下内容，生成详细摘要, 长度控制在以下内容的50%左右：\n\n{input}"
+                "{input}"
             )
         ])
 
-    async def run(self, docs: list[Document]):
-        chain = load_summarize_chain(llm=self.chat_model,
-                                     chain_type="stuff",
-                                     document_variable_name="input",
-                                     prompt=self.prompt_template,
-                                     )
+    def run(self, docs: list[Document], user_input: str, session_id: str):
+        stuff_documents_chain = create_stuff_documents_chain(llm=self.chat_model, prompt=self.prompt_template,
+                                                             document_variable_name="documents")
 
-        output_summary = chain.stream(input={"input_documents": docs})
+        # 携带历史消息进行聊天
+        result_chain = RunnableWithMessageHistory(
+            runnable=stuff_documents_chain,
+            get_session_history=get_session_history,
+            input_messages_key='input',
+            history_messages_key='chat_history',
+            verbose=True
+        )
 
-        # 输出每一段流结果
-        for chunk in output_summary:
-            print(f"======{chunk}\n\n")
-            print(f"======{chunk["output_text"]}")
+        resp = result_chain.stream({'input': user_input, 'documents': docs},
+                                   config={'configurable': {'session_id': session_id}}, )
+        for chunk in resp:
+            yield chunk
 
 
 app = FastAPI()
 
 
 @app.get("/get_summary")
-async def get_summary(file_path):
-    documents = load_and_split_document(file_path=file_path)
+def get_summary(session_id: str, input: str, file_path: Optional[str] = None):
     document_summary = DocumentSummary()
-    await document_summary.run(docs=documents)
-    return {}
+    if not file_path:
+        documents = []
+    else:
+        documents = load_and_split_document(file_path=file_path)
+    ret = document_summary.run(docs=documents, user_input=input, session_id=session_id)
+    session_history = get_session_history(session_id)
+    qaId = len(session_history.messages) // 2 + 1
+
+    def format_message(data: str, finished: bool) -> str:
+        """格式化流式输出的消息数据"""
+        js_data = {
+            "sceneName": "文档提取",
+            "finished": "true" if finished else "false",
+            "data": data,
+            "answerRenderType": "markdown",
+            "qaId": qaId
+        }
+        return f"data: {json.dumps(js_data, ensure_ascii=False)}\n\n"
+
+    def predict():
+        """流式返回生成的内容"""
+
+        for token in ret:
+            # 统一处理 token，无论是字符串还是字典形式
+            yield format_message(token, finished=False)
+
+        # 发送结束信号
+        yield format_message("[DONE]", finished=True)
+
+    return StreamingResponse(predict(), media_type="text/event-stream")
 
 
 if __name__ == "__main__":
